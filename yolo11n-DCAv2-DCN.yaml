@@ -1,0 +1,63 @@
+# yolo11n + DCAv2 + CAGDCN (full pipeline)
+#
+# DCAv2:    backbone 通道增强 — Beer-Lambert 物理先验修复光度退化
+# CAGDCN: neck 可变形卷积 — 自适应采样处理水下形变/遮挡
+#
+# 互补设计:
+#   水下退化 = 光度退化(吸收/散射) + 几何退化(形变/遮挡)
+#   DCAv2 → 通道维度, backbone, 修复"看得多清楚"
+#   DCN   → 空间维度, neck,     修复"采样在哪里"
+#
+# 消融实验:
+#   yolo11.yaml              → E1: baseline
+#   yolo11n-DCAv2.yaml       → E2: +DCAv2
+#   yolo11n-DCN.yaml         → E3: +DCN
+#   yolo11n-DCAv2-DCN.yaml   → E4: +DCAv2 + DCN
+
+nc: 10
+scale: n
+scales:
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024]
+  m: [0.50, 1.00, 512]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.50, 512]
+
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]           # 0  P1/2
+  - [-1, 1, Conv, [128, 3, 2]]          # 1  P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]]   # 2
+  - [-1, 1, Conv, [256, 3, 2]]          # 3  P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]]   # 4
+  - [-1, 1, DCAConv_v2, []]             # 5  P3 + DCAv2
+  - [-1, 1, Conv, [512, 3, 2]]          # 6  P4/16
+  - [-1, 2, C3k2, [512, True]]          # 7
+  - [-1, 1, DCAConv_v2, []]             # 8  P4 + DCAv2
+  - [-1, 1, Conv, [1024, 3, 2]]         # 9  P5/32
+  - [-1, 2, C3k2, [1024, True]]         # 10
+  - [-1, 1, SPPF, [1024, 5]]            # 11
+  - [-1, 2, C2PSA, [1024]]              # 12
+  - [-1, 1, DCAConv_v2, []]             # 13 P5 + DCAv2
+
+head:
+  # FPN top-down
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]    # 14
+  - [[-1, 7], 1, Concat, [1]]                      # 15  cat backbone P4 C3k2
+  - [-1, 2, C3k2, [512, False]]                    # 16
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 17
+  - [[-1, 4], 1, Concat, [1]]                      # 18  cat backbone P3 C3k2
+  - [-1, 2, C3k2, [256, False]]                    # 19 (P3/8-small)
+
+  # PAN bottom-up + DCN
+  - [-1, 1, Conv, [256, 3, 2]]                     # 20  P3→P4
+  - [-1, 1, CAGDCN, []]                           # 21  +DCN
+  - [[-1, 16], 1, Concat, [1]]                     # 22  cat head P4 FPN
+  - [-1, 2, C3k2, [512, False]]                    # 23 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]                     # 24  P4→P5
+  - [-1, 1, CAGDCN, []]                           # 25  +DCN
+  - [[-1, 13], 1, Concat, [1]]                     # 26  cat backbone P5 DCAv2
+  - [-1, 2, C3k2, [1024, True]]                    # 27 (P5/32-large)
+
+  - [[19, 23, 27], 1, Detect, [nc]]                 # 28

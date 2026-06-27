@@ -1,0 +1,38 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# YOLO datasets, weights, and training outputs
+runs/
+datasets/
+weights/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.torchscript
+*.tflite
+
+# Local copied repositories / references
+DUCNet_repo/
+
+# Logs and caches
+.cache/
+*.log
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large local references
+*.pdf

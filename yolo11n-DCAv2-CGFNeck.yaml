@@ -1,0 +1,59 @@
+# yolo11n + DCAv2 + CGFusion + MKConv (轻量完整版)
+#
+# CGFusion v2 (轻量): 逐通道门控在原始通道空间，无逐源投影
+# MKConv v2 (轻量): 逐通道核选择，2核 (3×3 + dilated 3×3≈7×7)
+# 预计参数 ~3.5M (vs 旧版 ~8.9M)，计算量 ~9.5 GFLOPs (vs ~21.4)
+#
+# 消融实验:
+#   yolo11.yaml                   → E1: baseline
+#   yolo11n-DCAv2.yaml            → E2: +DCAv2
+#   yolo11n-CGFNeck.yaml          → E3: +CGF-Neck (no DCAv2)
+#   yolo11n-DCAv2-CGFNeck.yaml    → E4: +DCAv2 + CGF-Neck
+
+nc: 10
+scale: n
+scales:
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024]
+  m: [0.50, 1.00, 512]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.50, 512]
+
+# DCAv2 backbone
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]]           # 0  P1/2
+  - [-1, 1, Conv, [128, 3, 2]]          # 1  P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]]   # 2
+  - [-1, 1, Conv, [256, 3, 2]]          # 3  P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]]   # 4  P3 (neck skip)
+  - [-1, 1, DCAConv_v2, []]             # 5  P3 + DCAv2
+  - [-1, 1, Conv, [512, 3, 2]]          # 6  P4/16
+  - [-1, 2, C3k2, [512, True]]          # 7  P4 (neck skip)
+  - [-1, 1, DCAConv_v2, []]             # 8  P4 + DCAv2
+  - [-1, 1, Conv, [1024, 3, 2]]         # 9  P5/32
+  - [-1, 2, C3k2, [1024, True]]         # 10
+  - [-1, 1, SPPF, [1024, 5]]            # 11
+  - [-1, 2, C2PSA, [1024]]              # 12
+  - [-1, 1, DCAConv_v2, []]             # 13 P5 + DCAv2 (neck entry)
+
+# CGF-Neck: CGFusion + MKConv
+head:
+  # Top-Down FPN
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 14  P5 x2 up
+  - [[-1, 7], 1, CGFusion, [512]]                   # 15  gate-fuse P5_up + P4
+  - [-1, 1, MKConv, [512]]                          # 16  multi-kernel refine
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]      # 17  P4 x2 up
+  - [[-1, 4], 1, CGFusion, [256]]                   # 18  gate-fuse P4_up + P3
+  - [-1, 1, MKConv, [256]]                          # 19  multi-kernel refine (P3/8-small)
+
+  # Bottom-Up PAN
+  - [-1, 1, Conv, [256, 3, 2]]                      # 20  P3 down
+  - [[-1, 16], 1, CGFusion, [512]]                  # 21  gate-fuse P3_down + P4_fpn
+  - [-1, 1, MKConv, [512]]                          # 22  multi-kernel refine (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]                      # 23  P4 down
+  - [[-1, 13], 1, CGFusion, [1024]]                 # 24  gate-fuse P4_down + P5
+  - [-1, 1, MKConv, [1024]]                         # 25  multi-kernel refine (P5/32-large)
+
+  - [[19, 22, 25], 1, Detect, [nc]]                 # 26  Detect(P3, P4, P5)
