@@ -15,9 +15,7 @@ Solution:
     - d=3 DWConv:   distant context (~5 cell span)
 
     Branches are concatenated and fused via linear 1x1 conv + BN, then added
-    as a residual.  NO progressive gate -- when training from scratch, all
-    weights are random anyway; the gate only hurts by desynchronizing module
-    activation from backbone convergence.
+    as a lightly scaled residual for stable early training.
 
 Complementarity to DCAv2:
     DCAv2: feature QUALITY (channel-wise, photometric)
@@ -47,18 +45,25 @@ class MSRF(nn.Module):
         super().__init__()
 
         # Three parallel receptive-field branches (depthwise, minimal params)
-        self.branch_local = nn.Conv2d(channels, channels, 3, padding=1,
-                                       groups=channels, bias=False)
-        self.branch_neighbor = nn.Conv2d(channels, channels, 7, padding=3,
-                                          groups=channels, bias=False)
-        self.branch_dilated = nn.Conv2d(channels, channels, 3, padding=3,
-                                         dilation=3, groups=channels, bias=False)
+        self.branch_local = nn.Sequential(
+            nn.Conv2d(channels, channels, 3, padding=1, groups=channels, bias=False),
+            nn.BatchNorm2d(channels),
+        )
+        self.branch_neighbor = nn.Sequential(
+            nn.Conv2d(channels, channels, 7, padding=3, groups=channels, bias=False),
+            nn.BatchNorm2d(channels),
+        )
+        self.branch_dilated = nn.Sequential(
+            nn.Conv2d(channels, channels, 3, padding=3, dilation=3, groups=channels, bias=False),
+            nn.BatchNorm2d(channels),
+        )
 
         # Linear fusion: 3*C -> C (nonlinearity from downstream C3k2)
         self.fuse = nn.Sequential(
             nn.Conv2d(channels * 3, channels, 1, bias=False),
             nn.BatchNorm2d(channels),
         )
+        self.scale = nn.Parameter(torch.tensor(0.1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Args: x (B, C, H, W). Returns: context-enriched features (B, C, H, W)."""
@@ -67,4 +72,4 @@ class MSRF(nn.Module):
         b_dilated = self.branch_dilated(x)
 
         fused = self.fuse(torch.cat([b_local, b_neighbor, b_dilated], dim=1))
-        return x + fused
+        return x + self.scale * fused
