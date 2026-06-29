@@ -82,6 +82,7 @@ from ultralytics.nn.modules import (
     CCFM,
     CS_HFCM,
     MSRF,
+    LCFE,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, SETTINGS, WINDOWS, YAML, colorstr, emojis
 from ultralytics.utils.checks import REMOTE_FILE_PREFIXES, check_file, check_requirements, check_suffix, check_yaml
@@ -1867,6 +1868,10 @@ def parse_model(d, ch, verbose=True):
             c2 = c_shallow + c_deep
             args = [c_shallow, c_deep]
         elif m is MSRF:
+            c1 = ch[f] if isinstance(f, int) else ch[f[0]]
+            c2 = c1
+            args = [c1]
+        elif m is LCFE:
             c1 = ch[f] if isinstance(f, int) else ch[f[0]]
             c2 = c1
             args = [c1]

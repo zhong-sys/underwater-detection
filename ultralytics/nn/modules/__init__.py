@@ -102,6 +102,7 @@ from .dcn import CAGDCN
 from .ccfm import CCFM
 from .cs_hfcm import CS_HFCM
 from .msrf import MSRF
+from .lcfe import LCFE
 from .transformer import (
     AIFI,
     MLP,
@@ -206,4 +207,5 @@ __all__ = (
     "CCFM",
     "CS_HFCM",
     "MSRF",
+    "LCFE",
 )
